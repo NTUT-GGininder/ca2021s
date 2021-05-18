@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Three.js MMDLoader app Music live</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #000;
+				color: #f0deee;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#info {
+				color: #fff;
+				position: absolute;
+				top: 10px;
+				width: 100%;
+				text-align: center;
+				display:block;
+			}
+			#info a, .button { color: #f00; font-weight: bold; text-decoration: underline; cursor: pointer }
+		</style>
+	</head>
+
+	<body>
+		<script id="vertexShader" type="x-shader/x-vertex">
+			varying vec2 vUv;
+
+			void main() {
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		</script>
+
+		<script id="fragmentShader" type="x-shader/x-fragment">
+			varying vec2 vUv;
+
+			uniform float strength;
+			uniform sampler2D tDiffuse;
+
+			void main() {
+				float n = 50.0 / strength;
+				gl_FragColor = texture2D( tDiffuse, floor( vUv * n ) / n );
+			}
+		</script>
+
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/build/three.js"></script>
+
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/libs/mmdparser.min.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/libs/ammo.js"></script>
+
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/loaders/TGALoader.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/loaders/MMDLoader.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/effects/OutlineEffect.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/animation/CCDIKSolver.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/animation/MMDPhysics.js"></script>
+
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/postprocessing/EffectComposer.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/postprocessing/ShaderPass.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/shaders/CopyShader.js"></script>
+
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/shaders/LuminosityHighPassShader.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/Detector.js"></script>
+		<script src="https://cdn.rawgit.com/mrdoob/three.js/r87/examples/js/libs/dat.gui.min.js"></script>
+
+		<script>
+
+			var container;
+
+			var camera, scene, renderer, effect;
+			var helper;
+			var shaderPass, composer, composer2;
+
+			var miku;
+            var classRoom;
+			var main = new THREE.Group();
+			var beams = new THREE.Group();
+			var monitors = new THREE.Group();
+
+			beams.visible = false;
+			monitors.visible = false;
+
+			var lightPoint, spotLight;
+
+			var ready = false;
+
+			var clock = new THREE.Clock();
+
+			init();
+			animate();
+
+			function init() {
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 2000 );
+				camera.position.y = 15;
+				camera.position.z = 50;
+
+				// renderer
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.setClearColor( new THREE.Color( 0x000000 ) );
+				renderer.shadowMap.enabled = true;
+				renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+				container.appendChild( renderer.domElement );
+
+				// effect = new THREE.OutlineEffect( renderer );
+
+				// scene
+
+				scene = new THREE.Scene();
+
+				// lights
+
+				ambientLight = new THREE.AmbientLight(0xdfdfdf, 0.15);
+				scene.add(ambientLight);
+
+				spotLight = new THREE.SpotLight( 0xca95c6, 0.1 );
+				spotLight.position.set( 0, 20, 30 );
+				spotLight.angle = 0.6;
+				spotLight.penumbra = 0.8;
+				spotLight.castShadow = true;
+
+				// Model specific Shadow parameters
+				spotLight.shadow.bias = -0.001;
+
+				
+				
+
+				lightPoint = new THREE.PointLight( 0xfafafa, 0.15 );
+				lightPoint.position.set( -10, 23, 30 );
+
+				// Shadow parameters
+				lightPoint.castShadow = true;
+				lightPoint.shadow.mapSize.x = 128;
+				lightPoint.shadow.mapSize.y = 128;
+				lightPoint.shadow.camera.right = 20;
+				lightPoint.shadow.camera.top = 20;
+				lightPoint.shadow.camera.left = -20;
+				lightPoint.shadow.camera.bottom = -20;
+
+				// Model specific Shadow parameters
+				renderer.shadowMap.renderSingleSided = true;
+				renderer.shadowMap.renderReverseSided = false;
+				lightPoint.shadow.bias = -0.001;
+
+				scene.add( lightPoint );
+
+				// pass
+
+				var bloomPass = new THREE.UnrealBloomPass(
+					new THREE.Vector2( window.innerWidth, window.innerHeight ),
+					1.0, 0.7, 0.1
+				);
+
+				var copyPass = new THREE.ShaderPass( THREE.CopyShader );
+				var copyPass2 = new THREE.ShaderPass( THREE.CopyShader );
+
+				copyPass.renderToScreen = true;
+
+				composer = new THREE.EffectComposer( renderer );
+				composer.setSize( window.innerWidth, window.innerHeight );
+				composer.addPass( bloomPass );
+				composer.addPass( copyPass );
+
+				composer2 = new THREE.EffectComposer( renderer );
+				composer2.readBuffer = composer.readBuffer;
+				composer2.setSize( window.innerWidth, window.innerHeight );
+				composer2.addPass( copyPass2 );
+
+				// model
+
+				var onProgress = function ( xhr ) {
+					if ( xhr.lengthComputable ) {
+						var percentComplete = xhr.loaded / xhr.total * 100;
+						console.log( Math.round(percentComplete, 2) + '% downloaded' );
+					}
+				};
+
+				var onError = function ( xhr ) {
+				};
+
+				// see the license https://github.com/takahirox/MMDLoader-app#readme for these assets
+				var TDAModelFile = './Tda式藤原千花/TDA式藤原千花.pmx';
+				var TDAMotionFiles = ['./main.vmd']//[ './チカっとチカ千花っ モーション.vmd', './facial.vmd' ];
+				var cameraFiles = ['./cam.vmd']//[ 'カメラ.vmd' ];
+                var classRoomModelFile = './ロマンス司書室/ロマンス司書室.pmx';
+				var sofaFile = './sofa/sofa.pmx';
+				var fakeVmd = ['facial.vmd']
+				var audioFile = './Never Gonna Give You Up.wav'//'./チカっとチカ千花っ.wav';
+				var audioParams = { };
+
+				helper = new THREE.MMDHelper();
+
+				var loader = new THREE.MMDLoader();
+
+                loader.load(classRoomModelFile, fakeVmd, function(object){
+                    var mesh = object;
+                    classRoom = mesh;
+                    var materials = mesh.material;
+                    // 
+                    // mesh.position.z = 25.0;
+                    console.log(materials.rotation)
+
+					for ( var i = 0, il = materials.length; i < il; i ++ ) {
+
+						var material = materials[ i ];
+						material.emissive.multiplyScalar( 0.5 );
+					}
+
+                    mesh.castShadow = true;
+					mesh.receiveShadow = true;
+					helper.add( mesh );
+					helper.setAnimation( mesh );
+					helper.setPhysics( mesh );
+
+                    mesh.rotation.y = Math.PI/2;
+					scene.add( mesh );
+                    
+                },onProgress, onError);
+
+				loader.load(sofaFile, fakeVmd, function(object){
+                    var mesh = object;
+                    classRoom = mesh;
+                    var materials = mesh.material;
+                    // 
+                    mesh.position.z = 18.0 - 25;
+					mesh.position.x = 25.0;
+                    console.log(materials.rotation)
+
+					for ( var i = 0, il = materials.length; i < il; i ++ ) {
+
+						var material = materials[ i ];
+						material.emissive.multiplyScalar( 0.5 );
+					}
+
+                    mesh.castShadow = true;
+					mesh.receiveShadow = true;
+					helper.add( mesh );
+					helper.setAnimation( mesh );
+					helper.setPhysics( mesh );
+
+                    mesh.rotation.y = Math.PI/2;
+					scene.add( mesh );
+                    
+                },onProgress, onError);
+
+                //load TDA
+				loader.load( TDAModelFile, TDAMotionFiles, function ( object ) {
+
+					var mesh = object;
+					miku = mesh;
+                    // mesh.rotation.y = Math.PI/2;
+					scene.add( spotLight );
+					scene.add( spotLight.target );
+					var materials = mesh.material;
+
+
+					for ( var i = 0, il = materials.length; i < il; i ++ ) {
+
+						var material = materials[ i ];
+						material.emissive.multiplyScalar( 0.5 );
+
+					} 
+					mesh.castShadow = true;
+					mesh.receiveShadow = true;
+					
+
+					helper.add( mesh );
+					helper.setAnimation( mesh );
+					helper.setPhysics( mesh );
+
+					main.add( mesh );
+					console.log(miku.skeleton.bones);
+
+					loader.loadVmds( cameraFiles, function ( vmd ) {
+
+						helper.setCamera( camera );
+
+						loader.pourVmdIntoCamera( camera, vmd );
+						helper.setCameraAnimation( camera );
+
+						loader.loadAudio( audioFile, function ( audio, listener ) {
+
+							listener.position.z = 1;
+
+							helper.setAudio( audio, listener, audioParams );
+
+							/*
+							 * Note: call this method after you set all animations
+							 *       including camera and audio.
+							 */
+							helper.unifyAnimationDuration( { afterglow: 2.0 } );
+
+							scene.add( audio );
+							scene.add( listener );
+							scene.add( main );
+
+							star = new THREE.Mesh(
+								new THREE.SphereBufferGeometry( 0.1, 8 ),
+								new THREE.MeshPhongMaterial( {
+									opacity: 0.1,
+									transparent: true
+								} )
+							);
+
+							ready = true;
+
+						}, onProgress, onError );
+
+					}, onProgress, onError );
+
+				}, onProgress, onError );
+
+                
+				// beams
+
+				var geometry = new THREE.SphereBufferGeometry( 0.05, 4 );
+
+				var beamNum = 200;
+
+				for ( var i = 0; i < beamNum; i ++ ) {
+
+					var mesh = new THREE.Mesh(
+						geometry,
+						new THREE.MeshBasicMaterial( {
+							color: 0xFF77FF,
+							opacity: 0.25 - 0.25 / beamNum * i,
+							transparent: true
+						} )
+					);
+
+					beams.add( mesh );
+
+				}
+
+				scene.add( beams );
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				composer.setSize( window.innerWidth, window.innerHeight );
+				composer2.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			//
+
+			function updateBeams() {
+
+				var pos = miku.skeleton.bones[ 23 ].getWorldPosition();
+
+				var num = 20;
+
+				for ( var i = beams.children.length - 1; i > 0; i -- ) {
+
+					if ( i < num ) {
+
+						beams.children[ i ].position.copy( beams.children[ 0 ].position ).lerp( pos, i / num );
+
+					} else {
+
+						beams.children[ i ].position.copy( beams.children[ i - num ].position );
+
+					}
+
+				}
+
+				beams.children[ 0 ].position.copy( pos );
+
+			}
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+				render();
+
+			}
+
+			function render() {
+
+				if ( ready ) {
+					
+					var delta = clock.getDelta();
+					helper.animate( delta );
+					spotLight.target.position.copy( miku.skeleton.bones[ 15 ].getWorldPosition() );
+					// console.log(miku.skeleton.bones);
+					// console.log(miku.children)
+					//  console.log(miku.children);
+					// spotLight.target.updateMatrixWorld();
+					updateBeams();
+
+				}
+
+				// pass 1. render main
+				
+				renderer.autoClear = true;
+				renderer.shadowMap.enabled = true;
+
+				scene.autoUpdate = true;
+
+				main.visible = true;
+				beams.visible = true;
+				renderer.render( scene, camera, composer.readBuffer );
+
+				// pass 2. render beams
+
+				// renderer.autoClear = false;
+				// renderer.shadowMap.enabled = false;
+
+				// scene.autoUpdate = false;
+
+				// main.visible = false;
+				// beams.visible = true;
+				// monitors.visible = false;
+
+				// renderer.render( scene, camera, composer.readBuffer );
+
+				// pass 5. render to screen
+
+				composer.render();
+
+			}
+
+		</script>
+
+	</body>
+</html>
